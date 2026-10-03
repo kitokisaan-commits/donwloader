@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chapter Importer Test v5 Direct</title>
+<style>
+:root{--bg:#0b0b0c;--card:#151517;--line:#2a2a2f;--text:#f5f5f7;--muted:#92929a;--good:#75d18a;--bad:#ff7777}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+.wrap{max-width:920px;margin:auto;padding:38px 18px 70px}.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#aaaab2}
+h1{font-size:34px;letter-spacing:-.03em;margin:8px 0}.sub{color:var(--muted);max-width:720px;margin-bottom:22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin-top:14px}
+.row{display:flex;gap:10px}.row>*:first-child{flex:1}
+input{width:100%;background:#0f0f11;color:#fff;border:1px solid #34343a;border-radius:12px;padding:13px 14px;outline:none}
+button,.pick{border:1px solid #3a3a40;background:#222226;color:#fff;border-radius:12px;padding:11px 14px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+button.primary,.pick.primary{background:#fff;color:#09090a;border-color:#fff}button:disabled{opacity:.4;cursor:not-allowed}
+.status{margin-top:12px;min-height:21px}.good{color:var(--good)}.bad{color:var(--bad)}.muted{color:var(--muted)}
+.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}.m{border:1px solid var(--line);border-radius:13px;padding:12px}.m b{display:block;font-size:20px}.m span{font-size:12px;color:var(--muted)}
+.bar{height:9px;background:#242428;border-radius:999px;overflow:hidden;margin:14px 0 6px}.fill{height:100%;width:0;background:#f5f5f7}
+.log{max-height:280px;overflow:auto;background:#0e0e10;border:1px solid #252529;border-radius:12px;padding:10px;font:12px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap}
+.hide{display:none!important}.pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.pill{border:1px solid #33333a;border-radius:999px;padding:6px 9px;color:#9999a2}.pill.on{color:#fff}
+.note{font-size:12px;color:#85858d;margin-top:10px}
+.drop{border:1px dashed #484850;border-radius:14px;padding:22px;text-align:center;margin-top:12px;color:#b8b8c0}
+.drop.drag{border-color:#fff;background:#1b1b1f}
+@media(max-width:700px){.row{flex-direction:column}.meta{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="eyebrow">standalone test build v5 · direct adapters</div>
+<h1>Chapter link → verified import</h1>
+<div class="sub">MangaDex, ReManga and WeebCentral download directly. Every image is verified before the ZIP is created. InkStory verification and the other official-source helpers remain available.</div>
+
+<div class="card">
+  <div class="row"><input id="url" placeholder="Paste MangaDex, ReManga, WeebCentral, InkStory or another supported chapter link…"><button class="primary" id="analyze">Analyze</button></div>
+  <div class="pills"><span class="pill on">MangaDex direct</span><span class="pill on">ReManga direct</span><span class="pill on">WeebCentral direct</span><span class="pill on">InkStory verify ZIP</span><span class="pill">MangaLib official</span><span class="pill">Senkuro official</span><span class="pill">MangaBuff official</span></div>
+  <div id="status" class="status">Ready.</div>
+</div>
+
+<div id="chapterCard" class="card hide">
+  <div id="title" style="font-size:18px;font-weight:800"></div>
+  <div id="info" class="muted"></div>
+  <div class="meta">
+    <div class="m"><b id="expected">0</b><span>Expected</span></div>
+    <div class="m"><b id="downloaded">0</b><span>Images found</span></div>
+    <div class="m"><b id="failed">0</b><span>Missing/broken</span></div>
+    <div class="m"><b id="duplicates">0</b><span>Duplicates</span></div>
+  </div>
+
+  <div id="directControls" class="hide">
+    <div class="bar"><div id="fill" class="fill"></div></div>
+    <div class="row"><button class="primary" id="build">Verify & build ZIP</button><button id="cancel" disabled>Cancel</button></div>
+  </div>
+
+  <div id="inkstoryControls" class="hide">
+    <div class="drop" id="drop">
+      Download the chapter using InkStory's official download feature, then drop the ZIP here.<br>
+      <label class="pick primary" style="margin-top:12px">Choose ZIP<input id="zipfile" type="file" accept=".zip,application/zip" hidden></label>
+    </div>
+    <div class="note">The file stays in your browser. This tester only checks the ZIP against the chapter's expected page count.</div>
+  </div>
+
+  <div id="scanlateControls" class="hide">
+    <div class="drop">
+      <div style="font-weight:800;font-size:16px;margin-bottom:8px">Official Scanlate Downloader supported</div>
+      <div id="scanlateSourceText" class="muted" style="margin-bottom:12px"></div>
+      <div class="row">
+        <button class="primary" id="openChapterBtn">Open chapter</button>
+        <button id="installScanlateBtn">Install official Firefox downloader</button>
+      </div>
+      <button id="copyChapterBtn" style="margin-top:10px;width:100%">Copy chapter link</button>
+    </div>
+    <div class="note">
+      The official ReadManga/GroupLe extension downloads supported chapters as ZIP. If a chapter requires an account or purchase, use only your own authorized access.
+    </div>
+  </div>
+
+  <div id="groupleControls" class="hide">
+    <div class="drop">
+      <div style="font-weight:800;font-size:16px;margin-bottom:8px">GroupLe / ReadManga official download</div>
+      <div class="muted">Open the chapter in your account and use the site's own chapter-download control if your account has access.</div>
+      <button class="primary" id="openGroupleBtn" style="margin-top:12px;width:100%">Open chapter</button>
+    </div>
+  </div>
+</div>
+
+<div id="logCard" class="card hide"><div style="font-weight:700;margin-bottom:8px">Verification log</div><div id="log" class="log"></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+const $=x=>document.getElementById(x); let chapter=null, aborter=null;
+function status(t,c=''){ $('status').className='status '+c; $('status').textContent=t }
+function log(t,c=''){const d=document.createElement('div');d.className=c;d.textContent=t;$('log').appendChild(d);$('log').scrollTop=$('log').scrollHeight}
+function cleanName(s){return (s||'chapter').replace(/[\\\\/:*?"<>|]+/g,' ').replace(/\\s+/g,' ').trim().slice(0,120)||'chapter'}
+async function digest(blob){const b=await blob.arrayBuffer(),h=await crypto.subtle.digest('SHA-256',b);return [...new Uint8Array(h)].map(v=>v.toString(16).padStart(2,'0')).join('')}
+async function getPage(url){
+ let last;
+ for(let n=1;n<=3;n++){
+  try{const r=await fetch(url,{signal:aborter.signal,cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);const b=await r.blob();if(!b.size)throw Error('empty file');if(!/^image\\//i.test(b.type))throw Error('not an image');return b}
+  catch(e){last=e;if(e.name==='AbortError')throw e;log('retry '+n+'/3: '+e.message,'bad');if(n<3)await new Promise(r=>setTimeout(r,400*n))}
+ } throw last
+}
+function resetCounts(){
+ $('downloaded').textContent=0;$('failed').textContent=0;$('duplicates').textContent=0;$('fill').style.width='0%';
+}
+$('analyze').onclick=async()=>{
+ const u=$('url').value.trim();if(!u)return;
+ $('chapterCard').classList.add('hide');$('logCard').classList.add('hide');$('log').textContent='';status('Analyzing…');
+ try{
+  const r=await fetch('/api/resolve?url='+encodeURIComponent(u),{cache:'no-store'}),d=await r.json();if(!r.ok)throw Error(d.error||'Resolve failed');
+  chapter=d;$('title').textContent=d.title;$('info').textContent=[d.provider,d.chapter?('Chapter '+d.chapter):'',d.language||''].filter(Boolean).join(' · ');
+  $('expected').textContent=d.expectedPages||d.pages?.length||0;resetCounts();
+  $('directControls').classList.toggle('hide',d.mode!=='direct');
+  $('inkstoryControls').classList.toggle('hide',d.mode!=='official-zip');
+  $('scanlateControls').classList.toggle('hide',d.mode!=='scanlate-official');
+  $('groupleControls').classList.toggle('hide',d.mode!=='grouple-official');
+  $('chapterCard').classList.remove('hide');
+  if(d.mode==='direct') status('Ready for direct verification.','good');
+  else if(d.mode==='official-zip') status('Chapter found. Verify the official ZIP against '+d.expectedPages+' expected pages.','good');
+  else if(d.mode==='scanlate-official'){
+    $('scanlateSourceText').textContent=d.sourceName+' is supported by the official ReadManga/GroupLe Scanlate Downloader.';
+    status('Supported through the official Scanlate Downloader workflow.','good');
+  } else if(d.mode==='grouple-official') status('Use the official chapter download available to eligible GroupLe/ReadManga accounts.','good');
+ }catch(e){status(e.message,'bad')}
+};
+$('cancel').onclick=()=>aborter?.abort();
+$('build').onclick=async()=>{
+ if(!chapter||chapter.mode!=='direct')return;if(!window.JSZip){status('ZIP library failed to load.','bad');return}
+ aborter=new AbortController();$('build').disabled=true;$('cancel').disabled=false;$('logCard').classList.remove('hide');$('log').textContent='';
+ const zip=new JSZip(),hashes=new Map(),fails=[];let done=0,dups=0;const pad=n=>String(n).padStart(Math.max(3,String(chapter.pages.length).length),'0');
+ try{
+  for(let i=0;i<chapter.pages.length;i++){
+   status('Downloading '+(i+1)+' / '+chapter.pages.length+'…');
+   try{
+    const b=await getPage('/api/page?provider='+encodeURIComponent(chapter.providerKey||'mangadex')+'&sourceId='+encodeURIComponent(chapter.sourceId||chapter.chapterId||'')+'&index='+i),h=await digest(b);
+    if(hashes.has(h)){dups++;log('duplicate: page '+(i+1)+' = page '+hashes.get(h),'bad')}else hashes.set(h,i+1);
+    const ext=((b.type.split('/')[1]||chapter.pages[i].ext||'jpg').replace('jpeg','jpg').match(/[a-z0-9]+/i)||['jpg'])[0];
+    zip.file(pad(i+1)+'.'+ext,b);done++;log('✓ '+pad(i+1)+'  '+Math.round(b.size/1024)+' KB','good')
+   }catch(e){fails.push(i+1);log('✗ page '+(i+1)+': '+e.message,'bad')}
+   $('downloaded').textContent=done;$('failed').textContent=fails.length;$('duplicates').textContent=dups;$('fill').style.width=Math.round((i+1)/chapter.pages.length*100)+'%'
+  }
+  if(fails.length){status('ZIP blocked: '+fails.length+' missing page(s).','bad');return}
+  const out=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:1}},m=>status('Building ZIP… '+Math.round(m.percent)+'%'));
+  const a=document.createElement('a'),obj=URL.createObjectURL(out);a.href=obj;a.download=cleanName(chapter.title)+'.zip';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(obj),30000);
+  status('Complete: '+done+'/'+chapter.pages.length+' pages · ZIP ready.','good')
+ }catch(e){status(e.name==='AbortError'?'Cancelled.':e.message,'bad')}
+ finally{$('build').disabled=false;$('cancel').disabled=true;aborter=null}
+};
+async function verifyInkStoryZip(file){
+ if(!chapter||chapter.mode!=='official-zip')return;
+ if(!window.JSZip){status('ZIP library failed to load.','bad');return}
+ $('logCard').classList.remove('hide');$('log').textContent='';status('Reading ZIP…');
+ try{
+  const z=await JSZip.loadAsync(file);
+  const entries=Object.values(z.files).filter(f=>!f.dir && /\\.(jpe?g|png|webp|gif|avif)$/i.test(f.name));
+  entries.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:'base'}));
+  const hashes=new Map();let dups=0,broken=0;
+  $('downloaded').textContent=entries.length;
+  for(let i=0;i<entries.length;i++){
+    const e=entries[i];
+    try{
+      const blob=await e.async('blob');
+      if(!blob.size){broken++;log('✗ empty: '+e.name,'bad');continue}
+      const h=await digest(blob);
+      if(hashes.has(h)){dups++;log('duplicate: '+e.name+' = '+hashes.get(h),'bad')}else hashes.set(h,e.name);
+      log('✓ '+e.name+'  '+Math.round(blob.size/1024)+' KB','good');
+    }catch(err){broken++;log('✗ broken: '+e.name,'bad')}
+  }
+  const expected=Number(chapter.expectedPages)||0,missing=Math.max(0,expected-entries.length)+broken;
+  $('failed').textContent=missing;$('duplicates').textContent=dups;
+  if(entries.length===expected && broken===0){
+    status('Verified: '+entries.length+'/'+expected+' images present'+(dups?'; '+dups+' duplicate(s) found.':'.'),'good');
+  }else{
+    status('Mismatch: expected '+expected+' images, ZIP has '+entries.length+(broken?(', broken '+broken):'')+'.','bad');
+  }
+ }catch(e){status('Could not read ZIP: '+e.message,'bad')}
+}
+$('zipfile').onchange=e=>{const f=e.target.files?.[0];if(f)verifyInkStoryZip(f)};
+const drop=$('drop');
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('drag')}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag')}));
+drop.addEventListener('drop',e=>{const f=e.dataTransfer.files?.[0];if(f)verifyInkStoryZip(f)});
+
+const SCANLATE_ADDON='https://addons.mozilla.org/ru/firefox/addon/scanlate-downloader/';
+$('openChapterBtn')?.addEventListener('click',()=>{if(chapter?.sourceUrl)window.open(chapter.sourceUrl,'_blank','noopener')});
+$('installScanlateBtn')?.addEventListener('click',()=>window.open(SCANLATE_ADDON,'_blank','noopener'));
+$('copyChapterBtn')?.addEventListener('click',async()=>{
+  if(!chapter?.sourceUrl)return;
+  try{await navigator.clipboard.writeText(chapter.sourceUrl);status('Chapter link copied.','good')}
+  catch(e){status('Could not copy link.','bad')}
+});
+$('openGroupleBtn')?.addEventListener('click',()=>{if(chapter?.sourceUrl)window.open(chapter.sourceUrl,'_blank','noopener')});
+
+</script>
+</body>
+</html>
