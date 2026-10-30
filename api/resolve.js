@@ -1,3 +1,4 @@
+import { getChapterServer } from '../lib/mangadex.mjs';
 function cleanHost(u){ return u.hostname.replace(/^www\./,'').toLowerCase(); }
 function extFromUrl(url){
   try{
@@ -142,13 +143,12 @@ try{
  if(host==='mangadex.org'){
    const m=u.pathname.match(/\/chapter\/([0-9a-f-]{36})/i);if(!m)return res.status(400).json({error:'Not a MangaDex chapter URL.'});
    const id=m[1];
-   const [aR,cR]=await Promise.all([
-    fetch('https://api.mangadex.org/at-home/server/'+id,{headers:{Accept:'application/json'}}),
+   const [a,cR]=await Promise.all([
+    getChapterServer(id),
     fetch('https://api.mangadex.org/chapter/'+id,{headers:{Accept:'application/json'}})
    ]);
-   if(!aR.ok)return res.status(502).json({error:'MangaDex at-home API: HTTP '+aR.status});
    if(!cR.ok)return res.status(502).json({error:'MangaDex chapter API: HTTP '+cR.status});
-   const a=await aR.json(),c=await cR.json(),files=a?.chapter?.data||[],x=c?.data?.attributes||{};
+   const c=await cR.json(),files=a?.chapter?.data||[],x=c?.data?.attributes||{};
    if(!files.length)return res.status(404).json({error:'No pages returned.'});
    const title=['MangaDex',x.volume?'Vol. '+x.volume:null,x.chapter?'Ch. '+x.chapter:null,x.title||null].filter(Boolean).join(' · ');
    return res.json({provider:'MangaDex public API',providerKey:'mangadex',mode:'direct',sourceId:id,sourceUrl:raw,title:title||id,chapter:x.chapter||'',language:x.translatedLanguage||'',expectedPages:files.length,pages:files.map((n,i)=>({index:i,name:n,ext:(n.split('.').pop()||'jpg').toLowerCase()}))});

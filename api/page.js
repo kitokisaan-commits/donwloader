@@ -1,3 +1,4 @@
+import { getChapterServer, forgetChapter } from '../lib/mangadex.mjs';
 function decodeHtml(s=''){
   return s.replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>');
 }
@@ -32,8 +33,8 @@ async function getWeebCentralUrls(id){
   return urls;
 }
 async function sendImage(res,url,headers={}){
-  const r=await fetch(url,{headers:{Accept:'image/*','User-Agent':'Mozilla/5.0 MangaOS-Chapter-Importer/5.0',...headers},cache:'no-store'});
-  if(!r.ok)return res.status(502).json({error:'Image server returned HTTP '+r.status});
+  const r=await fetch(url,{headers:{Accept:'image/*','User-Agent':'Mozilla/5.0 MangaOS-Chapter-Importer/5.0',...headers},cache:'no-store',signal:AbortSignal.timeout(15000)});
+  if(!r.ok){const e=new Error('Image server returned HTTP '+r.status);e.status=r.status===429?429:502;e.upstreamStatus=r.status;e.retryAfter=r.headers.get('retry-after');throw e;}
   const type=r.headers.get('content-type')||'';
   if(!type.startsWith('image/'))return res.status(502).json({error:'Response is not an image.'});
   const buf=Buffer.from(await r.arrayBuffer());if(!buf.length)return res.status(502).json({error:'Empty image.'});
@@ -47,25 +48,27 @@ try{
 
  if(provider==='mangadex'){
    if(!/^[0-9a-f-]{36}$/i.test(sourceId))return res.status(400).json({error:'Invalid MangaDex chapter id.'});
-   const mR=await fetch('https://api.mangadex.org/at-home/server/'+sourceId,{headers:{Accept:'application/json'}});
-   if(!mR.ok)return res.status(502).json({error:'MangaDex metadata failed.'});
-   const m=await mR.json(),files=m?.chapter?.data||[];if(index>=files.length)return res.status(404).json({error:'Page out of range.'});
+   const m=await getChapterServer(sourceId),files=m.chapter.data;if(index>=files.length)return res.status(404).json({error:'Page out of range.'});
    const name=files[index],url=m.baseUrl+'/data/'+m.chapter.hash+'/'+encodeURIComponent(name).replace(/%2F/g,'/');
-   return sendImage(res,url);
+   try { return await sendImage(res,url); }
+   catch(e){ if([403,404,410,502,503,504].includes(e.upstreamStatus)) forgetChapter(sourceId); throw e; }
  }
 
  if(provider==='remanga'){
    if(!/^\d+$/.test(sourceId))return res.status(400).json({error:'Invalid ReManga chapter id.'});
    const content=await getRemangaChapter(sourceId),urls=remangaUrls(content);if(index>=urls.length)return res.status(404).json({error:'Page out of range.'});
-   return sendImage(res,urls[index],{Referer:'https://remanga.org/'});
+   return await sendImage(res,urls[index],{Referer:'https://remanga.org/'});
  }
 
  if(provider==='weebcentral'){
    if(!/^[0-9A-Z]+$/i.test(sourceId))return res.status(400).json({error:'Invalid WeebCentral chapter id.'});
    const urls=await getWeebCentralUrls(sourceId);if(index>=urls.length)return res.status(404).json({error:'Page out of range.'});
-   return sendImage(res,urls[index],{Referer:`https://weebcentral.com/chapters/${sourceId}`});
+   return await sendImage(res,urls[index],{Referer:`https://weebcentral.com/chapters/${sourceId}`});
  }
 
  return res.status(400).json({error:'Unsupported provider.'});
-}catch(e){return res.status(500).json({error:e?.message||String(e)})}
+}catch(e){
+ if(e.retryAfter)res.setHeader('Retry-After',e.retryAfter);
+ return res.status(e.status||502).json({error:e?.message||String(e),upstreamStatus:e.upstreamStatus||null});
+}
 }

@@ -91,14 +91,37 @@ button.primary,.pick.primary{background:#fff;color:#09090a;border-color:#fff}but
 const $=x=>document.getElementById(x); let chapter=null, aborter=null;
 function status(t,c=''){ $('status').className='status '+c; $('status').textContent=t }
 function log(t,c=''){const d=document.createElement('div');d.className=c;d.textContent=t;$('log').appendChild(d);$('log').scrollTop=$('log').scrollHeight}
-function cleanName(s){return (s||'chapter').replace(/[\\\\/:*?"<>|]+/g,' ').replace(/\\s+/g,' ').trim().slice(0,120)||'chapter'}
+function cleanName(s){return (s||'chapter').replace(/[\\\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim().slice(0,120)||'chapter'}
 async function digest(blob){const b=await blob.arrayBuffer(),h=await crypto.subtle.digest('SHA-256',b);return [...new Uint8Array(h)].map(v=>v.toString(16).padStart(2,'0')).join('')}
+function waitRetry(ms, signal){
+ return new Promise((resolve,reject)=>{
+  if(signal.aborted)return reject(new DOMException('Cancelled','AbortError'));
+  const cancel=()=>{clearTimeout(timer);reject(new DOMException('Cancelled','AbortError'))};
+  const timer=setTimeout(()=>{signal.removeEventListener('abort',cancel);resolve()},ms);
+  signal.addEventListener('abort',cancel,{once:true});
+ });
+}
 async function getPage(url){
- let last;
+ const signal=aborter.signal;
  for(let n=1;n<=3;n++){
-  try{const r=await fetch(url,{signal:aborter.signal,cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);const b=await r.blob();if(!b.size)throw Error('empty file');if(!/^image\\//i.test(b.type))throw Error('not an image');return b}
-  catch(e){last=e;if(e.name==='AbortError')throw e;log('retry '+n+'/3: '+e.message,'bad');if(n<3)await new Promise(r=>setTimeout(r,400*n))}
- } throw last
+  let delay=1000*2**(n-1);
+  try{
+   const r=await fetch(url,{signal,cache:'no-store'});
+   if(!r.ok){
+    const text=await r.text();let detail;try{detail=JSON.parse(text).error}catch{}
+    const e=Error('HTTP '+r.status+(detail?': '+detail:''));e.status=r.status;
+    const retry=r.headers.get('retry-after');
+    if(retry){const ms=/^\d+$/.test(retry)?Number(retry)*1000:Date.parse(retry)-Date.now();if(ms>0)delay=Math.max(delay,ms)}
+    throw e;
+   }
+   const b=await r.blob();if(!b.size)throw Error('empty file');if(!/^image\//i.test(b.type))throw Error('not an image');return b;
+  }catch(e){
+   if(signal.aborted||e.name==='AbortError')throw new DOMException('Cancelled','AbortError');
+   if(n===3||(e.status>=400&&e.status<500&&e.status!==429))throw e;
+   log('Attempt '+n+'/3 failed: '+e.message+'; retry in '+Math.ceil(delay/1000)+'s','bad');
+   await waitRetry(delay,signal);
+  }
+ }
 }
 function resetCounts(){
  $('downloaded').textContent=0;$('failed').textContent=0;$('duplicates').textContent=0;$('fill').style.width='0%';
@@ -126,7 +149,7 @@ $('analyze').onclick=async()=>{
 $('cancel').onclick=()=>aborter?.abort();
 $('build').onclick=async()=>{
  if(!chapter||chapter.mode!=='direct')return;if(!window.JSZip){status('ZIP library failed to load.','bad');return}
- aborter=new AbortController();$('build').disabled=true;$('cancel').disabled=false;$('logCard').classList.remove('hide');$('log').textContent='';
+ resetCounts();aborter=new AbortController();$('analyze').disabled=true;$('build').disabled=true;$('cancel').disabled=false;$('logCard').classList.remove('hide');$('log').textContent='';
  const zip=new JSZip(),hashes=new Map(),fails=[];let done=0,dups=0;const pad=n=>String(n).padStart(Math.max(3,String(chapter.pages.length).length),'0');
  try{
   for(let i=0;i<chapter.pages.length;i++){
@@ -136,15 +159,17 @@ $('build').onclick=async()=>{
     if(hashes.has(h)){dups++;log('duplicate: page '+(i+1)+' = page '+hashes.get(h),'bad')}else hashes.set(h,i+1);
     const ext=((b.type.split('/')[1]||chapter.pages[i].ext||'jpg').replace('jpeg','jpg').match(/[a-z0-9]+/i)||['jpg'])[0];
     zip.file(pad(i+1)+'.'+ext,b);done++;log('✓ '+pad(i+1)+'  '+Math.round(b.size/1024)+' KB','good')
-   }catch(e){fails.push(i+1);log('✗ page '+(i+1)+': '+e.message,'bad')}
+   }catch(e){if(e.name==='AbortError')throw e;fails.push(i+1);log('✗ page '+(i+1)+': '+e.message,'bad')}
    $('downloaded').textContent=done;$('failed').textContent=fails.length;$('duplicates').textContent=dups;$('fill').style.width=Math.round((i+1)/chapter.pages.length*100)+'%'
   }
   if(fails.length){status('ZIP blocked: '+fails.length+' missing page(s).','bad');return}
+  aborter.signal.throwIfAborted();
   const out=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:1}},m=>status('Building ZIP… '+Math.round(m.percent)+'%'));
+  aborter.signal.throwIfAborted();
   const a=document.createElement('a'),obj=URL.createObjectURL(out);a.href=obj;a.download=cleanName(chapter.title)+'.zip';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(obj),30000);
   status('Complete: '+done+'/'+chapter.pages.length+' pages · ZIP ready.','good')
  }catch(e){status(e.name==='AbortError'?'Cancelled.':e.message,'bad')}
- finally{$('build').disabled=false;$('cancel').disabled=true;aborter=null}
+ finally{$('analyze').disabled=false;$('build').disabled=false;$('cancel').disabled=true;aborter=null}
 };
 async function verifyInkStoryZip(file){
  if(!chapter||chapter.mode!=='official-zip')return;
@@ -152,7 +177,7 @@ async function verifyInkStoryZip(file){
  $('logCard').classList.remove('hide');$('log').textContent='';status('Reading ZIP…');
  try{
   const z=await JSZip.loadAsync(file);
-  const entries=Object.values(z.files).filter(f=>!f.dir && /\\.(jpe?g|png|webp|gif|avif)$/i.test(f.name));
+  const entries=Object.values(z.files).filter(f=>!f.dir && /\.(jpe?g|png|webp|gif|avif)$/i.test(f.name));
   entries.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:'base'}));
   const hashes=new Map();let dups=0,broken=0;
   $('downloaded').textContent=entries.length;
